@@ -34,8 +34,6 @@ require_once(dirname(__FILE__) . '/../../config.php');
 
 $serviceshortname  = required_param('service',  PARAM_ALPHANUMEXT);
 
-// Allow CORS requests.
-header('Access-Control-Allow-Origin: *');
 echo $OUTPUT->header();
 
 $response = new stdClass();
