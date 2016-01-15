@@ -30,483 +30,184 @@ require_once("$CFG->dirroot/local/mobile/futurelib.php");
 class local_mobile_external extends external_api {
 
     /**
-     * Returns description of method parameters.
+     * Returns description of get_course_enrolment_methods() parameters
      *
      * @return external_function_parameters
-     * @since Moodle 2.9
      */
-    public static function core_user_remove_user_device_parameters() {
+    public static function core_enrol_get_course_enrolment_methods_parameters() {
         return new external_function_parameters(
             array(
-                'uuid'  => new external_value(PARAM_RAW, 'the device UUID'),
-                'appid' => new external_value(PARAM_NOTAGS,
-                                                'the app id, if empty devices matching the UUID for the user will be removed',
-                                                VALUE_DEFAULT, ''),
+                'courseid' => new external_value(PARAM_INT, 'Course id')
+            )
+        );
+    }
+    /**
+     * Get list of active course enrolment methods for current user.
+     *
+     * @param int $courseid
+     * @return array of course enrolment methods
+     */
+    public static function core_enrol_get_course_enrolment_methods($courseid) {
+        $params = self::validate_parameters(self::core_enrol_get_course_enrolment_methods_parameters(), array('courseid' => $courseid));
+        $coursecontext = context_course::instance($params['courseid']);
+        $categorycontext = $coursecontext->get_parent_context();
+        self::validate_context($categorycontext);
+        $result = array();
+        $enrolinstances = enrol_get_instances($params['courseid'], true);
+        foreach ($enrolinstances as $enrolinstance) {
+            if ($enrolplugin = enrol_get_plugin($enrolinstance->enrol)) {
+                if ($instanceinfo = $enrolplugin->get_enrol_info($enrolinstance)) {
+                    $result[] = (array) $instanceinfo;
+                } else if ($enrolinstance->enrol == 'guest') {
+                    $result[] = (array) enrol_guest_get_enrol_info($enrolinstance);
+                }
+            }
+        }
+        return $result;
+    }
+    /**
+     * Returns description of get_course_enrolment_methods() result value
+     *
+     * @return external_description
+     */
+    public static function core_enrol_get_course_enrolment_methods_returns() {
+        return new external_multiple_structure(
+            new external_single_structure(
+                array(
+                    'id' => new external_value(PARAM_INT, 'id of course enrolment instance'),
+                    'courseid' => new external_value(PARAM_INT, 'id of course'),
+                    'type' => new external_value(PARAM_PLUGIN, 'type of enrolment plugin'),
+                    'name' => new external_value(PARAM_RAW, 'name of enrolment plugin'),
+                    'status' => new external_value(PARAM_RAW, 'status of enrolment plugin'),
+                    'wsfunction' => new external_value(PARAM_ALPHANUMEXT, 'webservice function to get more information', VALUE_OPTIONAL),
+                )
             )
         );
     }
 
+
     /**
-     * Remove a user device from the Moodle database (for PUSH notifications usually).
+     * Returns description of method parameters
      *
-     * @param string $uuid The device UUID.
-     * @param string $appid The app id, opitonal parameter. If empty all the devices fmatching the UUID or the user will be removed.
-     * @return array List of possible warnings and removal status.
-     * @since Moodle 2.9
+     * @return external_function_parameters
      */
-    public static function core_user_remove_user_device($uuid, $appid = "") {
-        global $CFG;
-        require_once($CFG->dirroot . "/user/lib.php");
-
-        $params = self::validate_parameters(self::core_user_remove_user_device_parameters(), array('uuid' => $uuid, 'appid' => $appid));
-
-        $context = context_system::instance();
-        self::validate_context($context);
-
-        // Warnings array, it can be empty at the end but is mandatory.
-        $warnings = array();
-
-        $removed = user_remove_user_device($params['uuid'], $params['appid']);
-
-        if (!$removed) {
-            $warnings[] = array(
-                'item' => $params['uuid'],
-                'warningcode' => 'devicedoesnotexist',
-                'message' => 'The device doesn\'t exists in the database'
-            );
-        }
-
-        $result = array(
-            'removed' => $removed,
-            'warnings' => $warnings
+    public static function get_plugin_settings_parameters() {
+        return new external_function_parameters(
+            array()
         );
-
-        return $result;
     }
 
     /**
-     * Returns description of method result value.
+     * Get all the plugin settings.
+     * PLEASE DO NOT DELETE THIS FUNCTION.
+     * The Mobile app relies in this function to detect if the site is using the local_mobile plugin.
      *
-     * @return external_multiple_structure
-     * @since Moodle 2.9
+     * @return array of settings
      */
-    public static function core_user_remove_user_device_returns() {
+    public static function get_plugin_settings() {
+
+        // Warnings array, it can be empty at the end but is mandatory.
+        $warnings = array();
+        $settings = array();
+
+        $pluginsettings = get_config('local_mobile');
+        foreach ($pluginsettings as $key => $val) {
+            $settings[] = array(
+                'name' => $key,
+                'value' => $val,
+            );
+        }
+
+        $results = array(
+            'settings' => $settings,
+            'warnings' => $warnings
+        );
+        return $results;
+    }
+
+    /**
+     * Returns description of method result value
+     *
+     * @return external_description
+     */
+    public static function get_plugin_settings_returns() {
         return new external_single_structure(
             array(
-                'removed' => new external_value(PARAM_BOOL, 'True if removed, false if not removed because it didn\'t exists'),
+                'settings' => new external_multiple_structure(
+                    new external_single_structure(
+                        array(
+                            'name' => new external_value(PARAM_NOTAGS, 'setting name'),
+                            'value' => new external_value(PARAM_RAW, 'setting value'),
+                        )
+                    )
+                ),
                 'warnings' => new external_warnings(),
             )
         );
     }
 
     /**
-     * Describes the parameters for get_grades_table.
+     * Returns description of get_instance_info() parameters.
      *
-     * @return external_external_function_parameters
-     * @since Moodle 2.8
+     * @return external_function_parameters
+     * @since Moodle 3.1
      */
-    public static function gradereport_user_get_grades_table_parameters() {
-        return new external_function_parameters (
-            array(
-                'courseid' => new external_value(PARAM_INT, 'Course Id', VALUE_REQUIRED),
-                'userid'   => new external_value(PARAM_INT, 'Return grades only for this user (optional)', VALUE_DEFAULT, 0)
-            )
-        );
+    public static function enrol_guest_get_instance_info_parameters() {
+        return new external_function_parameters(
+                array('instanceid' => new external_value(PARAM_INT, 'Instance id of guest enrolment plugin.'))
+            );
     }
-
     /**
-     * Returns a list of grades tables for users in a course.
+     * Return guest enrolment instance information.
      *
-     * @param int $courseid Course Id
-     * @param int $userid   Only this user (optional)
-     *
-     * @return array the grades tables
-     * @since Moodle 2.8
+     * @param int $instanceid instance id of guest enrolment plugin.
+     * @return array warnings and instance information.
+     * @since Moodle 3.1
      */
-    public static function gradereport_user_get_grades_table($courseid, $userid = 0) {
-        global $CFG, $USER;
-
-        require_once($CFG->dirroot . '/group/lib.php');
-        require_once($CFG->libdir  . '/gradelib.php');
-        require_once($CFG->dirroot . '/grade/lib.php');
-        require_once($CFG->dirroot . '/grade/report/user/lib.php');
-
+    public static function enrol_guest_get_instance_info($instanceid) {
+        global $DB;
+        $params = self::validate_parameters(self::enrol_guest_get_instance_info_parameters(), array('instanceid' => $instanceid));
         $warnings = array();
-
-        // Validate the parameter.
-        $params = self::validate_parameters(self::gradereport_user_get_grades_table_parameters(),
-            array(
-                'courseid' => $courseid,
-                'userid' => $userid)
-            );
-
-        // Compact/extract functions are not recommended.
-        $courseid = $params['courseid'];
-        $userid   = $params['userid'];
-
-        // Function get_course internally throws an exception if the course doesn't exist.
-        $course = get_course($courseid);
-
-        $context = context_course::instance($courseid);
-        self::validate_context($context);
-
-        // Specific capabilities.
-        require_capability('gradereport/user:view', $context);
-
-        $user = null;
-
-        if (empty($userid)) {
-            require_capability('moodle/grade:viewall', $context);
-        } else {
-            $user = core_user::get_user($userid, '*', MUST_EXIST);
+        // Retrieve guest enrolment plugin.
+        $enrolplugin = enrol_get_plugin('guest');
+        if (empty($enrolplugin)) {
+            throw new moodle_exception('invaliddata', 'error');
         }
-
-        $access = false;
-
-        if (has_capability('moodle/grade:viewall', $context)) {
-            // Can view all course grades.
-            $access = true;
-        } else if ($userid == $USER->id and has_capability('moodle/grade:view', $context) and $course->showgrades) {
-            // View own grades.
-            $access = true;
-        } else if (has_capability('moodle/grade:viewall', context_user::instance($userid)) and $course->showgrades) {
-            // Can view grades of this user, parent most probably.
-            $access = true;
+        require_login(null, false, null, false, true);
+        $enrolinstance = $DB->get_record('enrol', array('id' => $params['instanceid']), '*', MUST_EXIST);
+        $course = $DB->get_record('course', array('id' => $enrolinstance->courseid), '*', MUST_EXIST);
+        $context = context_course::instance($course->id);
+        if (!$course->visible and !has_capability('moodle/course:viewhiddencourses', $context)) {
+            throw new moodle_exception('coursehidden');
         }
+        $instanceinfo = enrol_guest_get_enrol_info($enrolinstance);
 
-        if (!$access) {
-            throw new moodle_exception('nopermissiontoviewgrades', 'error',  $CFG->wwwroot.  '/course/view.php?id=' . $courseid);
-        }
-
-        $gpr = new grade_plugin_return(
-            array(
-                'type' => 'report',
-                'plugin' => 'user',
-                'courseid' => $courseid,
-                'userid' => $userid)
-            );
-
-        $tables = array();
-
-        // Just one user.
-        if ($user) {
-            $report = new grade_report_user($courseid, $gpr, $context, $userid);
-            $report->fill_table();
-
-            // Notice that we use array_filter for deleting empty elements in the array.
-            // Those elements are items or category not visible by the user.
-            $tables[] = array(
-                'courseid'      => $courseid,
-                'userid'        => $user->id,
-                'userfullname'  => fullname($user),
-                'maxdepth'      => $report->maxdepth,
-                'tabledata'     => $report->tabledata
-            );
-
-        } else {
-            $defaultgradeshowactiveenrol = !empty($CFG->grade_report_showonlyactiveenrol);
-            $showonlyactiveenrol = get_user_preferences('grade_report_showonlyactiveenrol', $defaultgradeshowactiveenrol);
-            $showonlyactiveenrol = $showonlyactiveenrol || !has_capability('moodle/course:viewsuspendedusers', $context);
-
-            $gui = new graded_users_iterator($course);
-            $gui->require_active_enrolment($showonlyactiveenrol);
-            $gui->init();
-
-            while ($userdata = $gui->next_user()) {
-                $currentuser = $userdata->user;
-                $report = new grade_report_user($courseid, $gpr, $context, $currentuser->id);
-                $report->fill_table();
-
-                // Notice that we use array_filter for deleting empty elements in the array.
-                // Those elements are items or category not visible by the user.
-                $tables[] = array(
-                    'courseid'      => $courseid,
-                    'userid'        => $currentuser->id,
-                    'userfullname'  => fullname($currentuser),
-                    'maxdepth'      => $report->maxdepth,
-                    'tabledata'     => $report->tabledata
-                );
-            }
-            $gui->close();
-        }
-
+        // Specific instance information.
+        $instanceinfo->passwordrequired = $instanceinfo->requiredparam->passwordrequired;
+        unset($instanceinfo->requiredparam);
         $result = array();
-        $result['tables'] = $tables;
+        $result['instanceinfo'] = $instanceinfo;
         $result['warnings'] = $warnings;
         return $result;
     }
-
     /**
-     * Creates a table column structure
+     * Returns description of get_instance_info() result value.
      *
-     * @return array
-     * @since  Moodle 2.8
+     * @return external_description
+     * @since Moodle 3.1
      */
-    private static function grades_table_column() {
-        return array (
-            'class'   => new external_value(PARAM_RAW, 'class'),
-            'content' => new external_value(PARAM_RAW, 'cell content'),
-            'headers' => new external_value(PARAM_RAW, 'headers')
-        );
-    }
-
-    /**
-     * Describes tget_grades_table return value.
-     *
-     * @return external_single_structure
-     * @since Moodle 2.8
-     */
-    public static function gradereport_user_get_grades_table_returns() {
+    public static function enrol_guest_get_instance_info_returns() {
         return new external_single_structure(
             array(
-                'tables' => new external_multiple_structure(
-                    new external_single_structure(
-                        array(
-                            'courseid' => new external_value(PARAM_INT, 'course id'),
-                            'userid'   => new external_value(PARAM_INT, 'user id'),
-                            'userfullname' => new external_value(PARAM_TEXT, 'user fullname'),
-                            'maxdepth'   => new external_value(PARAM_INT, 'table max depth (needed for printing it)'),
-                            'tabledata' => new external_multiple_structure(
-                                new external_single_structure(
-                                    array(
-                                        'itemname' => new external_single_structure(
-                                            array (
-                                                'class' => new external_value(PARAM_RAW, 'file name'),
-                                                'colspan' => new external_value(PARAM_INT, 'mime type'),
-                                                'content'  => new external_value(PARAM_RAW, ''),
-                                                'celltype'  => new external_value(PARAM_RAW, ''),
-                                                'id'  => new external_value(PARAM_ALPHANUMEXT, '')
-                                            ), 'The item returned data', VALUE_OPTIONAL
-                                        ),
-                                        'leader' => new external_single_structure(
-                                            array (
-                                                'class' => new external_value(PARAM_RAW, 'file name'),
-                                                'rowspan' => new external_value(PARAM_INT, 'mime type')
-                                            ), 'The item returned data', VALUE_OPTIONAL
-                                        ),
-                                        'weight' => new external_single_structure(
-                                            self::grades_table_column(), 'weight column', VALUE_OPTIONAL
-                                        ),
-                                        'grade' => new external_single_structure(
-                                            self::grades_table_column(), 'grade column', VALUE_OPTIONAL
-                                        ),
-                                        'range' => new external_single_structure(
-                                            self::grades_table_column(), 'range column', VALUE_OPTIONAL
-                                        ),
-                                        'percentage' => new external_single_structure(
-                                            self::grades_table_column(), 'percentage column', VALUE_OPTIONAL
-                                        ),
-                                        'lettergrade' => new external_single_structure(
-                                            self::grades_table_column(), 'lettergrade column', VALUE_OPTIONAL
-                                        ),
-                                        'rank' => new external_single_structure(
-                                            self::grades_table_column(), 'rank column', VALUE_OPTIONAL
-                                        ),
-                                        'average' => new external_single_structure(
-                                            self::grades_table_column(), 'average column', VALUE_OPTIONAL
-                                        ),
-                                        'feedback' => new external_single_structure(
-                                            self::grades_table_column(), 'feedback column', VALUE_OPTIONAL
-                                        ),
-                                        'contributiontocoursetotal' => new external_single_structure(
-                                            self::grades_table_column(), 'contributiontocoursetotal column', VALUE_OPTIONAL
-                                        ),
-                                    ), 'table'
-                                )
-                            )
-                        )
+                'instanceinfo' => new external_single_structure(
+                    array(
+                        'id' => new external_value(PARAM_INT, 'Id of course enrolment instance'),
+                        'courseid' => new external_value(PARAM_INT, 'Id of course'),
+                        'type' => new external_value(PARAM_PLUGIN, 'Type of enrolment plugin'),
+                        'name' => new external_value(PARAM_RAW, 'Name of enrolment plugin'),
+                        'status' => new external_value(PARAM_BOOL, 'Is the enrolment enabled?'),
+                        'passwordrequired' => new external_value(PARAM_BOOL, 'Is a password required?'),
                     )
-                ),
-                'warnings' => new external_warnings()
-            )
-        );
-    }
-
-    /**
-     * Search contacts parameters description.
-     *
-     * @return external_function_parameters
-     * @since 2.5
-     */
-    public static function core_message_search_contacts_parameters() {
-        return new external_function_parameters(
-            array(
-                'searchtext' => new external_value(PARAM_CLEAN, 'String the user\'s fullname has to match to be found'),
-                'onlymycourses' => new external_value(PARAM_BOOL, 'Limit search to the user\'s courses',
-                    VALUE_DEFAULT, false)
-            )
-        );
-    }
-
-    /**
-     * Search contacts.
-     *
-     * @param string $searchtext query string.
-     * @param bool $onlymycourses limit the search to the user's courses only.
-     * @return external_description
-     * @since 2.5
-     */
-    public static function core_message_search_contacts($searchtext, $onlymycourses = false) {
-        global $CFG, $USER;
-        require_once($CFG->libdir . '/enrollib.php');
-        require_once($CFG->dirroot . "/local/mobile/locallib.php");
-        require_once($CFG->dirroot . "/user/lib.php");
-
-        $params = array('searchtext' => $searchtext, 'onlymycourses' => $onlymycourses);
-        $params = self::validate_parameters(self::core_message_search_contacts_parameters(), $params);
-        // Extra validation, we do not allow empty queries.
-        if ($params['searchtext'] === '') {
-            throw new moodle_exception('querystringcannotbeempty');
-        }
-        $courseids = array();
-        if ($params['onlymycourses']) {
-            $mycourses = enrol_get_my_courses(array('id'));
-            foreach ($mycourses as $mycourse) {
-                $courseids[] = $mycourse->id;
-            }
-        } else {
-            $courseids[] = SITEID;
-        }
-        // Retrieving the users matching the query.
-        $users = message_search_users($courseids, $params['searchtext']);
-
-        $results = array();
-        foreach ($users as $user) {
-            $results[$user->id] = $user;
-        }
-        // Reorganising information.
-        foreach ($results as &$user) {
-            $newuser = array(
-                'id' => $user->id,
-                'fullname' => fullname($user)
-            );
-            // Avoid undefined property notice as phone not specified.
-            $user->phone1 = null;
-            $user->phone2 = null;
-            // Try to get the user picture, but sometimes this method can return null.
-            $userdetails = user_get_user_details($user, null, array('profileimageurl', 'profileimageurlsmall'));
-            if (!empty($userdetails)) {
-                $newuser['profileimageurl'] = $userdetails['profileimageurl'];
-                $newuser['profileimageurlsmall'] = $userdetails['profileimageurlsmall'];
-            }
-            $user = $newuser;
-        }
-        return $results;
-    }
-    /**
-     * Search contacts return description.
-     *
-     * @return external_description
-     * @since 2.5
-     */
-    public static function core_message_search_contacts_returns() {
-        return new external_multiple_structure(
-            new external_single_structure(
-                array(
-                    'id' => new external_value(PARAM_INT, 'User ID'),
-                    'fullname' => new external_value(PARAM_NOTAGS, 'User full name'),
-                    'profileimageurl' => new external_value(PARAM_URL, 'User picture URL', VALUE_OPTIONAL),
-                    'profileimageurlsmall' => new external_value(PARAM_URL, 'Small user picture URL', VALUE_OPTIONAL)
-                )
-            ),
-            'List of contacts'
-        );
-    }
-
-
-    /**
-     * Get blocked users parameters description.
-     *
-     * @return external_function_parameters
-     * @since 2.9
-     */
-    public static function core_message_get_blocked_users_parameters() {
-        return new external_function_parameters(
-            array(
-                'userid' => new external_value(PARAM_INT,
-                                'the user whose blocked users we want to retrieve',
-                                VALUE_REQUIRED),
-            )
-        );
-    }
-
-    /**
-     * Retrieve a list of users blocked
-     *
-     * @param  int $userid the user whose blocked users we want to retrieve
-     * @return external_description
-     * @since 2.9
-     */
-    public static function core_message_get_blocked_users($userid) {
-        global $CFG, $USER;
-        require_once($CFG->dirroot . "/message/lib.php");
-
-        // Warnings array, it can be empty at the end but is mandatory.
-        $warnings = array();
-
-        // Validate params.
-        $params = array(
-            'userid' => $userid
-        );
-        $params = self::validate_parameters(self::core_message_get_blocked_users_parameters(), $params);
-        $userid = $params['userid'];
-
-        // Validate context.
-        $context = context_system::instance();
-        self::validate_context($context);
-
-        // Check if private messaging between users is allowed.
-        if (empty($CFG->messaging)) {
-            throw new moodle_exception('disabled', 'message');
-        }
-
-        $user = core_user::get_user($userid, 'id', MUST_EXIST);
-
-        // Check if we have permissions for retrieve the information.
-        if ($userid != $USER->id and !has_capability('moodle/site:readallmessages', $context)) {
-            throw new moodle_exception('accessdenied', 'admin');
-        }
-
-        // Now, we can get safely all the blocked users.
-        $users = message_get_blocked_users($user);
-
-        $blockedusers = array();
-        foreach ($users as $user) {
-            $newuser = array(
-                'id' => $user->id,
-                'fullname' => fullname($user),
-            );
-            $newuser['profileimageurl'] = moodle_url::make_pluginfile_url(
-                context_user::instance($user->id)->id, 'user', 'icon', null, '/', 'f1')->out(false);
-
-            $blockedusers[] = $newuser;
-        }
-
-        $results = array(
-            'users' => $blockedusers,
-            'warnings' => $warnings
-        );
-        return $results;
-    }
-
-    /**
-     * Get blocked users return description.
-     *
-     * @return external_single_structure
-     * @since 2.9
-     */
-    public static function core_message_get_blocked_users_returns() {
-        return new external_single_structure(
-            array(
-                'users' => new external_multiple_structure(
-                    new external_single_structure(
-                        array(
-                            'id' => new external_value(PARAM_INT, 'User ID'),
-                            'fullname' => new external_value(PARAM_NOTAGS, 'User full name'),
-                            'profileimageurl' => new external_value(PARAM_URL, 'User picture URL', VALUE_OPTIONAL)
-                        )
-                    ),
-                    'List of blocked users'
                 ),
                 'warnings' => new external_warnings()
             )
@@ -517,103 +218,59 @@ class local_mobile_external extends external_api {
      * Returns description of method parameters
      *
      * @return external_function_parameters
-     * @since Moodle 2.9
+     * @since Moodle 3.1
      */
-    public static function core_group_get_course_user_groups_parameters() {
+    public static function mod_forum_can_add_discussion_parameters() {
         return new external_function_parameters(
             array(
-                'courseid' => new external_value(PARAM_INT, 'id of course'),
-                'userid' => new external_value(PARAM_INT, 'id of user')
+                'forumid' => new external_value(PARAM_INT, 'Forum instance ID'),
+                'groupid' => new external_value(PARAM_INT, 'The group to check, default to active group.
+                                                Use -1 to check if the user can post in all the groups.', VALUE_DEFAULT, null)
             )
         );
     }
-
     /**
-     * Get all groups in the specified course for the specified user
+     * Check if the current user can add discussions in the given forum (and optionally for the given group).
      *
-     * @param int $courseid id of course
-     * @param int $userid id of user
-     * @return array of group objects (id, name ...)
-     * @since Moodle 2.9
+     * @param int $forumid the forum instance id
+     * @param int $groupid the group to check, default to active group. Use -1 to check if the user can post in all the groups.
+     * @return array of warnings and the status (true if the user can add discussions)
+     * @since Moodle 3.1
+     * @throws moodle_exception
      */
-    public static function core_group_get_course_user_groups($courseid, $userid) {
-        global $USER;
-
-        // Warnings array, it can be empty at the end but is mandatory.
+    public static function mod_forum_can_add_discussion($forumid, $groupid = null) {
+        global $DB, $CFG;
+        require_once($CFG->dirroot . "/mod/forum/lib.php");
+        $params = self::validate_parameters(self::mod_forum_can_add_discussion_parameters(),
+                                            array(
+                                                'forumid' => $forumid,
+                                                'groupid' => $groupid,
+                                            ));
         $warnings = array();
-
-        $params = array(
-            'courseid' => $courseid,
-            'userid' => $userid
-        );
-        $params = self::validate_parameters(self::core_group_get_course_user_groups_parameters(), $params);
-        $courseid = $params['courseid'];
-        $userid = $params['userid'];
-
-        // Validate course and user. get_course throws an exception if the course does not exists.
-        $course = get_course($courseid);
-        $user = core_user::get_user($userid, 'id', MUST_EXIST);
-
-        // Security checks.
-        $context = context_course::instance($courseid);
+        // Request and permission validation.
+        $forum = $DB->get_record('forum', array('id' => $params['forumid']), '*', MUST_EXIST);
+        list($course, $cm) = get_course_and_cm_from_instance($forum, 'forum');
+        $context = context_module::instance($cm->id);
         self::validate_context($context);
-
-         // Check if we have permissions for retrieve the information.
-        if ($userid != $USER->id) {
-            if (!has_capability('moodle/course:managegroups', $context)) {
-                throw new moodle_exception('accessdenied', 'admin');
-            }
-            // Validate if the user is enrolled in the course.
-            if (!is_enrolled($context, $userid)) {
-                // We return a warning because the function does not fail for not enrolled users.
-                $warning['item'] = 'course';
-                $warning['itemid'] = $courseid;
-                $warning['warningcode'] = '1';
-                $warning['message'] = "User $userid is not enrolled in course $courseid";
-                $warnings[] = $warning;
-            }
-        }
-
-        $usergroups = array();
-        if (empty($warnings)) {
-            $groups = groups_get_all_groups($courseid, $userid, 0, 'g.id, g.name, g.description, g.descriptionformat');
-
-            foreach ($groups as $group) {
-                list($group->description, $group->descriptionformat) =
-                    external_format_text($group->description, $group->descriptionformat,
-                            $context->id, 'group', 'description', $group->id);
-                $usergroups[] = (array)$group;
-            }
-        }
-
-        $results = array(
-            'groups' => $usergroups,
-            'warnings' => $warnings
-        );
-        return $results;
+        $status = forum_user_can_post_discussion($forum, $params['groupid'], -1, $cm, $context);
+        $result = array();
+        $result['status'] = $status;
+        $result['warnings'] = $warnings;
+        return $result;
     }
-
     /**
      * Returns description of method result value
      *
      * @return external_description
-     * @since Moodle 2.9
+     * @since Moodle 3.1
      */
-    public static function core_group_get_course_user_groups_returns() {
+    public static function mod_forum_can_add_discussion_returns() {
         return new external_single_structure(
             array(
-                'groups' => new external_multiple_structure(
-                    new external_single_structure(
-                        array(
-                            'id' => new external_value(PARAM_INT, 'group record id'),
-                            'name' => new external_value(PARAM_TEXT, 'multilang compatible name, course unique'),
-                            'description' => new external_value(PARAM_RAW, 'group description text'),
-                            'descriptionformat' => new external_format_value('description')
-                        )
-                    )
-                ),
-                'warnings' => new external_warnings(),
+                'status' => new external_value(PARAM_BOOL, 'True if the user can add discussions, false otherwise.'),
+                'warnings' => new external_warnings()
             )
         );
     }
+
 }

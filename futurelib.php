@@ -24,32 +24,24 @@
 
 defined('MOODLE_INTERNAL') || die;
 
-require_once("$CFG->dirroot/user/lib.php");
+require_once($CFG->libdir . '/enrollib.php');
 
+function enrol_guest_get_enrol_info($enrolinstance) {
+    $enrolplugin = enrol_get_plugin('guest');
 
-if (!function_exists('user_remove_user_device')) {
-    /**
-     * Remove a user device from the Moodle database (for PUSH notifications usually).
-     *
-     * @param string $uuid The device UUID.
-     * @param string $appid The app id. If empty all the devices matching the UUID for the user will be removed.
-     * @return bool true if removed, false if the device didn't exists in the database
-     * @since Moodle 2.9
-     */
-    function user_remove_user_device($uuid, $appid = "") {
-        global $DB, $USER;
+    $instanceinfo = new stdClass();
+    $instanceinfo->id = $enrolinstance->id;
+    $instanceinfo->courseid = $enrolinstance->courseid;
+    $instanceinfo->type = $enrolplugin->get_name();
+    $instanceinfo->name = $enrolplugin->get_instance_name($enrolinstance);
+    $instanceinfo->status = $enrolinstance->status == ENROL_INSTANCE_ENABLED;
+    // Specifics enrolment method parameters.
+    $instanceinfo->requiredparam = new stdClass();
+    $instanceinfo->requiredparam->passwordrequired = !empty($enrolinstance->password);
 
-        $conditions = array('uuid' => $uuid, 'userid' => $USER->id);
-        if (!empty($appid)) {
-            $conditions['appid'] = $appid;
-        }
-
-        if (!$DB->count_records('user_devices', $conditions)) {
-            return false;
-        }
-
-        $DB->delete_records('user_devices', $conditions);
-
-        return true;
+    // If the plugin is enabled, return the URL for obtaining more information.
+    if ($instanceinfo->status) {
+        $instanceinfo->wsfunction = 'enrol_guest_get_instance_info';
     }
+    return $instanceinfo;
 }
