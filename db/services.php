@@ -69,6 +69,7 @@ $services = array(
             'core_course_search_courses',
             'core_course_view_course',
             'core_enrol_get_enrolled_users',
+            'core_enrol_get_enrolled_users_with_capability',
             'core_enrol_get_users_courses',
             'core_get_component_strings',   // Don't remove this, the app relies on this to check the min version.
             'core_group_get_activity_allowed_groups',
